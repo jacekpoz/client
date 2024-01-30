@@ -115,7 +115,7 @@ fun App() {
 
                         val request = Request.Builder()
                             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                            .url("$BASE_URL/game/${currentGame.gameId}/winner/$winnerId")
+                            .url("$BASE_URL/game/${currentGame.gameId}/setwinner/$winnerId")
                             .header("Authorization", "Bearer $accessToken")
                             .build()
 

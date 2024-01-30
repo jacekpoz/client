@@ -60,7 +60,7 @@ fun GameScreen(
 
     scope.launch {
         while(true) {
-            delay(5000)
+            delay(1000)
             if (myTurn) {
                 continue
             }
@@ -89,7 +89,6 @@ fun GameScreen(
                     myTurn = true
                     haveIPassed = false
                 }
-
                 GameAction.PASS -> {
                     myTurn = true
                 }
@@ -172,9 +171,6 @@ fun GameScreen(
                         token = token,
                     )) {
                         haveIPassed = true
-                        if (game.state == GameState.ONE_PASSED) {
-
-                        }
                     }
                 },
             ) {
