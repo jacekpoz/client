@@ -4,7 +4,7 @@ enum class UserLobbyState {
 }
 
 enum class GameAction {
-    MOVE, WIN_REQ, LOSE_REQ, LEAVE
+    MOVE, PASS, FORFEIT
 }
 
 enum class UserColor {
@@ -45,11 +45,25 @@ data class LeaderboardDto(
     val userScore: Long,
 )
 
+enum class GameState {
+    PLAYING, ONE_PASSED, SCORING, FINISHED
+}
+
 data class GameDto(
     val gameId: Long,
     val userWhiteId: Long,
     val userBlackId: Long,
-)
+    val state: GameState,
+) {
+    companion object {
+        val INVALID = GameDto(
+            gameId = -1L,
+            userWhiteId = -1L,
+            userBlackId = -1L,
+            state = GameState.FINISHED,
+        )
+    }
+}
 
 data class GameActionDto(
     val userId: Long,

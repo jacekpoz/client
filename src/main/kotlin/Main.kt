@@ -8,6 +8,8 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.singleWindowApplication
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -19,12 +21,12 @@ fun App() {
     var inGame by remember { mutableStateOf(false) }
     var accessToken by remember { mutableStateOf("") }
     var userProfile: UserProfileDto? = null
-    val leaderboard: MutableList<UserProfileDto> = mutableListOf()
     var showError by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf("") }
+    var currentGame by remember { mutableStateOf(GameDto.INVALID) }
 
-    val setError: (Throwable) -> Unit = {
-        errorText = it.message ?: "Unknown error"
+    val setError: (String?) -> Unit = {
+        errorText = it ?: "Unknown error"
         showError = true
     }
 
@@ -34,98 +36,40 @@ fun App() {
         val userProfileResult = getUserProfile(authDto.userId, authDto.userId, accessToken)
 
         if (userProfileResult.isFailure) {
-            setError(userProfileResult.exceptionOrNull()!!)
+            setError(userProfileResult.exceptionOrNull()!!.toString())
             return@afterLogin
         }
 
         userProfile = userProfileResult.getOrNull()!!
 
         loggedIn = true
-
-        val leaderboardDto = getLeaderboard(userProfile!!.userId, accessToken)
-
-        if (leaderboardDto.isFailure) {
-            setError(leaderboardDto.exceptionOrNull()!!)
-            return@afterLogin
-        }
-
-        leaderboard.addAll(leaderboardDto.getOrNull()!!)
     }
 
-    val onLogin: (LoginDto) -> Unit = onLogin@{ loginDto: LoginDto ->
-        val body = MOSHI.adapter(LoginDto::class.java)
-            .toJson(loginDto)
+    val scope = rememberCoroutineScope()
 
-        val request = Request.Builder()
-            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .url("$BASE_URL/auth/authenticate")
-            .header("Authorization", "Bearer $accessToken")
-            .build()
-
-        val result = HTTP.newCall(request).execute().use newCall@{ response ->
-            if (!response.isSuccessful) {
-                return@newCall Result.failure(Exception(response.toString()))
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5000)
+            if (!loggedIn) {
+                continue
             }
-
-            return@newCall Result.success(
-                MOSHI.adapter(AuthResponseDto::class.java)
-                    .fromJson(response.body!!.source())
-            )
-        }
-
-        if (result.isFailure) {
-            setError(result.exceptionOrNull()!!)
-            return@onLogin
-        }
-
-        val authDto = result.getOrNull()!!
-
-        afterLogin(authDto)
-    }
-
-    val onRegister: (RegisterDto) -> Unit = onRegister@{ registerDto: RegisterDto ->
-        val body = MOSHI.adapter(RegisterDto::class.java)
-            .toJson(registerDto)
-
-        val request = Request.Builder()
-            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-            .url("$BASE_URL/auth/register")
-            .header("Authorization", "Bearer $accessToken")
-            .build()
-
-        val result = HTTP.newCall(request).execute().use newCall@{ response ->
-            if (!response.isSuccessful) {
-                return@newCall Result.failure(Exception(response.toString()))
+            scope.launch scope@{
+                val game = getCurrentGame(userProfile!!.userId, accessToken)
+                if (game.isFailure) {
+                    return@scope
+                }
+                currentGame = game.getOrNull()!!
+                inGame = true
             }
-
-            return@newCall Result.success(
-                MOSHI.adapter(AuthResponseDto::class.java)
-                    .fromJson(response.body!!.source())
-            )
         }
-
-        if (result.isFailure) {
-            setError(result.exceptionOrNull()!!)
-            return@onRegister
-        }
-
-        val authDto = result.getOrNull()!!
-
-        afterLogin(authDto)
     }
-
 
     MaterialTheme {
         if (loggedIn) {
             if (inGame) {
-                val currentGame = getCurrentGame(userProfile!!.userId, accessToken)
-                if (currentGame.isFailure) {
-                    setError(currentGame.exceptionOrNull()!!)
-                }
-                val game = currentGame.getOrNull()!!
                 GameScreen(
                     myId = userProfile!!.userId,
-                    game = game,
+                    game = currentGame,
                     token = accessToken,
                     // TODO implement this
                     //messages = listOf(
@@ -151,7 +95,7 @@ fun App() {
 
                         val request = Request.Builder()
                             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                            .url("$BASE_URL/game/move/send")
+                            .url("$BASE_URL/game/turn/send")
                             .header("Authorization", "Bearer $accessToken")
                             .build()
 
@@ -171,7 +115,7 @@ fun App() {
 
                         val request = Request.Builder()
                             .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                            .url("$BASE_URL/game/${game.gameId}/winner/$winnerId")
+                            .url("$BASE_URL/game/${currentGame.gameId}/winner/$winnerId")
                             .header("Authorization", "Bearer $accessToken")
                             .build()
 
@@ -184,23 +128,44 @@ fun App() {
                         }
 
                         if (result.isFailure) {
-                            setError(result.exceptionOrNull()!!)
+                            setError(result.exceptionOrNull()!!.toString())
                         }
+
+                        inGame = false
                     }
                 )
             } else {
                 LobbyScreen(
-                    currentUserProfile = userProfile!!,
-                    leaderboard = leaderboard,
+                    currentProfile = userProfile!!,
                     showError = {
-                        setError(it)
+                        setError(it.toString())
                     },
                     token = accessToken,
-                    onGameStart = { inGame = true },
                 )
             }
         } else {
-            LoginScreen(onLogin, onRegister)
+            LoginScreen(
+                onLogin = onLogin@{ loginDto ->
+                    val authDto = login(loginDto)
+
+                    if (authDto.isFailure) {
+                        setError(authDto.exceptionOrNull()!!.toString())
+                        return@onLogin
+                    }
+
+                    afterLogin(authDto.getOrNull()!!)
+                },
+                onRegister = onRegister@{ registerDto: RegisterDto ->
+                    val authDto = register(registerDto)
+
+                    if (authDto.isFailure) {
+                        setError(authDto.exceptionOrNull()!!.toString())
+                        return@onRegister
+                    }
+
+                    afterLogin(authDto.getOrNull()!!)
+                },
+            )
         }
     }
 

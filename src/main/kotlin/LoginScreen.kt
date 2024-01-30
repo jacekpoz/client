@@ -3,34 +3,37 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.Button
 import androidx.compose.material.Text
 import androidx.compose.material.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 @Composable
 fun LoginScreen(
-    onLogin: (LoginDto) -> Unit,
-    onRegister: (RegisterDto) -> Unit,
+    onLogin: suspend (LoginDto) -> Unit,
+    onRegister: suspend (RegisterDto) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+
+        val scope = rememberCoroutineScope()
+
         Column {
-            var nickname by rememberSaveable { mutableStateOf("") }
-            var password by rememberSaveable { mutableStateOf("") }
-            var error by rememberSaveable { mutableStateOf("") }
-            var isNicknameError by rememberSaveable { mutableStateOf(false) }
-            var isPasswordError by rememberSaveable { mutableStateOf(false) }
+            var nickname by remember { mutableStateOf("") }
+            var password by remember { mutableStateOf("") }
+            var error by remember { mutableStateOf("") }
+            var isNicknameError by remember { mutableStateOf(false) }
+            var isPasswordError by remember { mutableStateOf(false) }
 
             Text(
                 text = "Login"
@@ -57,19 +60,24 @@ fun LoginScreen(
                 visualTransformation = PasswordVisualTransformation(),
                 isError = isPasswordError,
             )
-            Button(onClick = {
-                if (nickname.isBlank()) {
-                    error = "Username can't be blank"
-                    isNicknameError = true
-                    return@Button
-                }
-                if (password.isBlank()) {
-                    error = "Password can't be blank"
-                    isPasswordError = true
-                    return@Button
-                }
-                onLogin(LoginDto(nickname, password))
-            }) {
+            Button(
+                onClick = {
+                    if (nickname.isBlank()) {
+                        error = "Username can't be blank"
+                        isNicknameError = true
+                        return@Button
+                    }
+                    if (password.isBlank()) {
+                        error = "Password can't be blank"
+                        isPasswordError = true
+                        return@Button
+                    }
+
+                    scope.launch {
+                        onLogin(LoginDto(nickname, password))
+                    }
+                },
+            ) {
                 Text("Login")
             }
             Text(
@@ -79,13 +87,13 @@ fun LoginScreen(
         }
         Spacer(modifier = Modifier.width(20.dp))
         Column {
-            var nickname by rememberSaveable { mutableStateOf("") }
-            var email by rememberSaveable { mutableStateOf("") }
-            var password by rememberSaveable { mutableStateOf("") }
-            var error by rememberSaveable { mutableStateOf("") }
-            var isNicknameError by rememberSaveable { mutableStateOf(false) }
-            var isEmailError by rememberSaveable { mutableStateOf(false) }
-            var isPasswordError by rememberSaveable { mutableStateOf(false) }
+            var nickname by remember { mutableStateOf("") }
+            var email by remember { mutableStateOf("") }
+            var password by remember { mutableStateOf("") }
+            var error by remember { mutableStateOf("") }
+            var isNicknameError by remember { mutableStateOf(false) }
+            var isEmailError by remember { mutableStateOf(false) }
+            var isPasswordError by remember { mutableStateOf(false) }
 
             Text(
                 text = "Register"
@@ -119,21 +127,26 @@ fun LoginScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visualTransformation = PasswordVisualTransformation(),
             )
-            Button(onClick = {
-                if (nickname.isBlank()) {
-                    error = "Username can't be blank"
-                    return@Button
+            Button(
+                onClick = {
+                    if (nickname.isBlank()) {
+                        error = "Username can't be blank"
+                        return@Button
+                    }
+                    if (email.isBlank()) {
+                        error = "Email can't be blank"
+                        return@Button
+                    }
+                    if (password.isBlank()) {
+                        error = "Password can't be blank"
+                        return@Button
+                    }
+
+                    scope.launch {
+                        onRegister(RegisterDto(nickname, email, password))
+                    }
                 }
-                if (email.isBlank()) {
-                    error = "Email can't be blank"
-                    return@Button
-                }
-                if (password.isBlank()) {
-                    error = "Password can't be blank"
-                    return@Button
-                }
-                onRegister(RegisterDto(nickname, email, password))
-            }) {
+            ) {
                 Text("Register")
             }
             Text(

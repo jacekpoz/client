@@ -5,18 +5,21 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
-import androidx.compose.material.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.Request
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterialApi::class)
 @Composable
 fun GameScreen(
     myId: Long,
@@ -34,6 +37,9 @@ fun GameScreen(
     //val messageAuthors = remember {
     //    mutableStateMapOf<Long, UserProfileDto>()
     //}
+
+    var haveIWon by remember { mutableStateOf(false) }
+    var haveIPassed by remember { mutableStateOf(false) }
 
     var myTurn by remember { mutableStateOf(game.userWhiteId == myId) }
 
@@ -53,48 +59,45 @@ fun GameScreen(
         }
     }
 
-    val coroutineScope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(key1 = Unit) {
-        coroutineScope.launch {
-            while(true) {
-                delay(5000)
-                if (myTurn) {
-                    continue
+    scope.launch {
+        while(true) {
+            delay(5000)
+            if (myTurn) {
+                continue
+            }
+
+            val request = Request.Builder()
+                .get()
+                .url("$BASE_URL/game/turn/fetch")
+                .header("Authorization", "Bearer $token")
+                .build()
+
+            val result = HTTP.newCall(request).execute().use request@{ response ->
+                if (!response.isSuccessful) {
+                    return@request null
                 }
 
-                val request = Request.Builder()
-                    .get()
-                    .url("$BASE_URL/game/move/fetch")
-                    .header("Authorization", "Bearer $token")
-                    .build()
+                return@request MOSHI.adapter(GameJournalDto::class.java)
+                    .fromJson(response.body!!.source())
+            } ?: continue
 
-                val result = HTTP.newCall(request).execute().use request@{ response ->
-                    if (!response.isSuccessful) {
-                        return@request null
-                    }
+            when (result.action) {
+                GameAction.MOVE -> {
+                    board[result.turnY][result.turnX] =
+                        if (result.authorId == game.userWhiteId) StoneType.WHITE
+                            else StoneType.BLACK
 
-                    return@request MOSHI.adapter(GameJournalDto::class.java)
-                        .fromJson(response.body!!.source())
-                } ?: continue
+                    myTurn = true
+                    haveIPassed = false
+                }
 
-                when (result.action) {
-                    GameAction.MOVE -> {
-                        board[result.turnY][result.turnX] =
-                            if (result.authorId == game.userWhiteId) StoneType.WHITE
-                                else StoneType.BLACK
-
-                        myTurn = true
-                    }
-                    GameAction.WIN_REQ -> {
-                        onGameEnd(if (myId == game.userWhiteId) game.userWhiteId else game.userBlackId)
-                    }
-                    GameAction.LOSE_REQ -> {
-                        onGameEnd(if (myId == game.userWhiteId) game.userBlackId else game.userWhiteId)
-                    }
-                    GameAction.LEAVE -> {
-                        onGameEnd(-1L)
-                    }
+                GameAction.PASS -> {
+                    myTurn = true
+                }
+                GameAction.FORFEIT -> {
+                    haveIWon = false
                 }
             }
         }
@@ -156,7 +159,49 @@ fun GameScreen(
             val turn = if (myTurn) myStoneColor
                 else if (myStoneColor == StoneType.WHITE) StoneType.BLACK
                     else StoneType.WHITE
+            Text("Your color: $myStoneColor")
             Text("Turn: $turn")
+            Text(if (game.state == GameState.ONE_PASSED) "Opponent has passed" else "")
+            Button(
+                onClick = {
+                    if(sendAction(
+                        gameAction = GameJournalDto(
+                            gameId = game.gameId,
+                            authorId = myId,
+                            action = GameAction.PASS,
+                            turnX = -1,
+                            turnY = -1,
+                        ),
+                        token = token,
+                    )) {
+                        haveIPassed = true
+                        if (game.state == GameState.ONE_PASSED) {
+
+                        }
+                    }
+                },
+            ) {
+                Text("Pass")
+            }
+
+            Button(
+                onClick = {
+                    if(sendAction(
+                            gameAction = GameJournalDto(
+                                gameId = game.gameId,
+                                authorId = myId,
+                                action = GameAction.FORFEIT,
+                                turnX = -1,
+                                turnY = -1,
+                            ),
+                            token = token,
+                    )) {
+                        haveIWon = false
+                    }
+                },
+            ) {
+                Text("Forfeit")
+            }
         }
 
         var boardSize by remember { mutableStateOf(IntSize.Zero) }
@@ -207,6 +252,33 @@ fun GameScreen(
                         }
                 )
             }
+        }
+
+        if (game.state == GameState.SCORING) {
+            val winnerId = if (haveIWon) myId
+                else if (myStoneColor == StoneType.WHITE) game.userBlackId
+                else game.userWhiteId
+            AlertDialog(
+                onDismissRequest = {
+                    onGameEnd(winnerId)
+                },
+                confirmButton = {
+                    TextButton(onClick = {}) {
+                        Text("Watch replay")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { onGameEnd(winnerId) }) {
+                        Text("Go back")
+                    }
+                },
+                title = {
+                    Text("Game over!")
+                },
+                text = {
+                    Text("")
+                },
+            )
         }
     }
 }

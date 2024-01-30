@@ -13,9 +13,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LobbyScreen(
-    currentUserProfile: UserProfileDto,
-    leaderboard: List<UserProfileDto>,
-    onGameStart: () -> Unit,
+    currentProfile: UserProfileDto,
     showError: (Throwable) -> Unit,
     token: String,
 ) {
@@ -23,37 +21,39 @@ fun LobbyScreen(
     var friendInvites by remember {
         mutableStateOf<List<UserInviteDto>>(emptyList())
     }
-
     var gameInvites by remember {
         mutableStateOf<List<UserInviteDto>>(emptyList())
     }
+    var leaderboard by remember {
+        mutableStateOf<List<UserProfileDto>>(emptyList())
+    }
 
-    val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(key1 = Unit) {
-        coroutineScope.launch {
-            while(true) {
-                delay(5000)
-                val friendInvitesResult = fetchInvites(
-                    myId = currentUserProfile.userId,
-                    token = token,
-                    type = InviteType.FRIEND,
-                )
-                if (friendInvitesResult.isFailure) {
-                    continue
-                }
+    LaunchedEffect(Unit) {
+        while(true) {
+            val friendInvitesResult = fetchInvites(
+                myId = currentProfile.userId,
+                token = token,
+                type = InviteType.FRIEND,
+            )
+            if (friendInvitesResult.isSuccess) {
                 friendInvites = friendInvitesResult.getOrDefault(emptyList())
-
-                val gameInvitesResult = fetchInvites(
-                    myId = currentUserProfile.userId,
-                    token = token,
-                    type = InviteType.GAME,
-                )
-                if (gameInvitesResult.isFailure) {
-                    continue
-                }
-                gameInvites = friendInvitesResult.getOrDefault(emptyList())
             }
+
+            val gameInvitesResult = fetchInvites(
+                myId = currentProfile.userId,
+                token = token,
+                type = InviteType.GAME,
+            )
+            if (gameInvitesResult.isSuccess) {
+                gameInvites = gameInvitesResult.getOrDefault(emptyList())
+            }
+
+            val leaderboardDto = getLeaderboard(currentProfile.userId, token)
+            if (leaderboardDto.isSuccess) {
+                leaderboard = leaderboardDto.getOrDefault(emptyList())
+            }
+
+            delay(5000)
         }
     }
 
@@ -93,10 +93,96 @@ fun LobbyScreen(
         LazyColumn(
             horizontalAlignment = Alignment.End
         ) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    Text("Nickname")
+                    Text("Score")
+                    Text("Wins per Losses")
+                    Text("Game invite")
+                    Text("Friend invite")
+                }
+            }
             items(leaderboard.size) { i ->
+                val profile = leaderboard[i]
+                val friendInvite = friendInvites.find {
+                    (it.userSenderId == currentProfile.userId &&
+                            it.userReceiverId == profile.userId) ||
+                            (it.userSenderId == profile.userId &&
+                                    it.userReceiverId == currentProfile.userId)
+                }
+                val gameInvite = gameInvites.find {
+                    (it.userSenderId == currentProfile.userId &&
+                            it.userReceiverId == profile.userId) ||
+                            (it.userSenderId == profile.userId &&
+                                    it.userReceiverId == currentProfile.userId)
+                }
+
                 UserProfileListable(
-                    myId = currentUserProfile.userId,
-                    profile = leaderboard[i],
+                    modifier = Modifier.fillMaxWidth(),
+                    myId = currentProfile.userId,
+                    profile = profile,
+                    friendInvite = friendInvite,
+                    gameInvite = gameInvite,
+                    onFriendInvite = { accept ->
+                        if (!accept) {
+                            val result = sendInvite(
+                                invite = UserInviteDto(
+                                    userSenderId = currentProfile.userId,
+                                    userReceiverId = profile.userId,
+                                ),
+                                token = token,
+                                type = InviteType.FRIEND,
+                            )
+                            if (result.isFailure) {
+                                showError(result.exceptionOrNull()!!)
+                            }
+                        } else {
+                            val result = acceptInvite(
+                                invite = UserInviteDto(
+                                    userSenderId = profile.userId,
+                                    userReceiverId = currentProfile.userId,
+                                ),
+                                token = token,
+                                type = InviteType.FRIEND,
+                            )
+                            if (result.isFailure) {
+                                showError(result.exceptionOrNull()!!)
+                            }
+                        }
+                    },
+                    onGameInvite = { accept ->
+                        if (!accept) {
+                            val result = sendInvite(
+                                invite = UserInviteDto(
+                                    userSenderId = currentProfile.userId,
+                                    userReceiverId = profile.userId,
+                                ),
+                                token = token,
+                                type = InviteType.GAME,
+                            )
+                            if (result.isFailure) {
+                                showError(result.exceptionOrNull()!!)
+                            }
+                        } else {
+                            val result = acceptInvite(
+                                invite = UserInviteDto(
+                                    userSenderId = profile.userId,
+                                    userReceiverId = currentProfile.userId,
+                                ),
+                                token = token,
+                                type = InviteType.GAME,
+                            )
+                            if (result.isFailure) {
+                                showError(result.exceptionOrNull()!!)
+                            }
+                        }
+                    },
                 )
             }
         }
@@ -104,54 +190,8 @@ fun LobbyScreen(
 
     if (showCurrentProfile) {
         UserProfilePopup(
-            myId = currentUserProfile.userId,
-            profile = currentUserProfile,
-            isMe = true,
+            profile = currentProfile,
             onDismissRequest = { showCurrentProfile = false },
-            onFriendInvite = { accept, invite ->
-                if (!accept) {
-                    val result = sendInvite(
-                        invite = invite,
-                        token = token,
-                        type = InviteType.FRIEND,
-                    )
-                    if (result.isFailure) {
-                        showError(result.exceptionOrNull()!!)
-                    }
-                } else {
-                    val result = acceptInvite(
-                        invite = invite,
-                        token = token,
-                        type = InviteType.FRIEND,
-                    )
-                    if (result.isFailure) {
-                        showError(result.exceptionOrNull()!!)
-                    }
-                }
-            },
-            onGameInvite = { accept, invite ->
-                if (!accept) {
-                    val result = sendInvite(
-                        invite = invite,
-                        token = token,
-                        type = InviteType.GAME,
-                    )
-                    if (result.isFailure) {
-                        showError(result.exceptionOrNull()!!)
-                    }
-                } else {
-                    val result = acceptInvite(
-                        invite = invite,
-                        token = token,
-                        type = InviteType.GAME,
-                    )
-                    if (result.isFailure) {
-                        showError(result.exceptionOrNull()!!)
-                    }
-
-                    onGameStart()
-                }
-            },
         )
     }
 }
